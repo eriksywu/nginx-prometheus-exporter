@@ -3,6 +3,7 @@ package collector
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/nginx/nginx-prometheus-exporter/client"
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,15 +11,18 @@ import (
 
 // NginxCollector collects NGINX metrics. It implements prometheus.Collector interface.
 type NginxCollector struct {
-	upMetric    prometheus.Gauge
-	logger      *slog.Logger
-	nginxClient *client.NginxClient
-	metrics     map[string]*prometheus.Desc
-	mutex       sync.Mutex
+	upMetric            prometheus.Gauge
+	logger              *slog.Logger
+	nginxClient         *client.NginxClient
+	metrics             map[string]*prometheus.Desc
+	mutex               sync.Mutex
+	collectionStartTime time.Time
 }
 
 // NewNginxCollector creates an NginxCollector.
 func NewNginxCollector(nginxClient *client.NginxClient, namespace string, constLabels map[string]string, logger *slog.Logger) *NginxCollector {
+	now := time.Now()
+	logger.Info("creating NGINX collector with start time = %v", now)
 	return &NginxCollector{
 		nginxClient: nginxClient,
 		logger:      logger,
@@ -31,7 +35,8 @@ func NewNginxCollector(nginxClient *client.NginxClient, namespace string, constL
 			"connections_waiting":  newGlobalMetric(namespace, "connections_waiting", "Idle client connections", constLabels),
 			"http_requests_total":  newGlobalMetric(namespace, "http_requests_total", "Total http requests", constLabels),
 		},
-		upMetric: newUpMetric(namespace, constLabels),
+		upMetric:            newUpMetric(namespace, constLabels),
+		collectionStartTime: now,
 	}
 }
 
@@ -57,22 +62,22 @@ func (c *NginxCollector) Collect(ch chan<- prometheus.Metric) {
 		c.logger.Error("error getting stats", "error", err.Error())
 		return
 	}
-
+	c.logger.Info("using ct = %v", c.collectionStartTime)
 	c.upMetric.Set(nginxUp)
 	ch <- c.upMetric
 
 	ch <- prometheus.MustNewConstMetric(c.metrics["connections_active"],
 		prometheus.GaugeValue, float64(stats.Connections.Active))
-	ch <- prometheus.MustNewConstMetric(c.metrics["connections_accepted"],
-		prometheus.CounterValue, float64(stats.Connections.Accepted))
-	ch <- prometheus.MustNewConstMetric(c.metrics["connections_handled"],
-		prometheus.CounterValue, float64(stats.Connections.Handled))
+	ch <- prometheus.MustNewConstMetricWithCreatedTimestamp(c.metrics["connections_accepted"],
+		prometheus.CounterValue, float64(stats.Connections.Accepted), c.collectionStartTime)
+	ch <- prometheus.MustNewConstMetricWithCreatedTimestamp(c.metrics["connections_handled"],
+		prometheus.CounterValue, float64(stats.Connections.Handled), c.collectionStartTime)
 	ch <- prometheus.MustNewConstMetric(c.metrics["connections_reading"],
 		prometheus.GaugeValue, float64(stats.Connections.Reading))
 	ch <- prometheus.MustNewConstMetric(c.metrics["connections_writing"],
 		prometheus.GaugeValue, float64(stats.Connections.Writing))
 	ch <- prometheus.MustNewConstMetric(c.metrics["connections_waiting"],
 		prometheus.GaugeValue, float64(stats.Connections.Waiting))
-	ch <- prometheus.MustNewConstMetric(c.metrics["http_requests_total"],
-		prometheus.CounterValue, float64(stats.Requests))
+	ch <- prometheus.MustNewConstMetricWithCreatedTimestamp(c.metrics["http_requests_total"],
+		prometheus.CounterValue, float64(stats.Requests), c.collectionStartTime)
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 
 	plusclient "github.com/nginx/nginx-plus-go-client/v2/client"
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,6 +60,8 @@ type NginxPlusCollector struct {
 	variableLabelNames             VariableLabelNames
 	variableLabelsMutex            sync.RWMutex
 	mutex                          sync.Mutex
+
+	collectionStartTime time.Time // TODO: add to COUNTER metrics
 }
 
 // UpdateUpstreamServerPeerLabels updates the Upstream Server Peer Labels.
@@ -257,6 +260,7 @@ func NewVariableLabelNames(upstreamServerVariableLabelNames []string, serverZone
 
 // NewNginxPlusCollector creates an NginxPlusCollector.
 func NewNginxPlusCollector(nginxClient *plusclient.NginxClient, namespace string, variableLabelNames VariableLabelNames, constLabels map[string]string, logger *slog.Logger) *NginxPlusCollector {
+	now := time.Now()
 	upstreamServerVariableLabelNames := variableLabelNames.UpstreamServerVariableLabelNames
 	streamUpstreamServerVariableLabelNames := variableLabelNames.StreamUpstreamServerVariableLabelNames
 
@@ -563,6 +567,7 @@ func NewNginxPlusCollector(nginxClient *plusclient.NginxClient, namespace string
 			"http_requests_total":   newWorkerMetric(namespace, "http_requests_total", "The total number of client requests received by the worker process", constLabels),
 			"http_requests_current": newWorkerMetric(namespace, "http_requests_current", "The current number of client requests that are currently being processed by the worker process", constLabels),
 		},
+		collectionStartTime: now,
 	}
 }
 

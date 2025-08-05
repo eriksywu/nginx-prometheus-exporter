@@ -19,11 +19,11 @@ import (
 	plusclient "github.com/nginx/nginx-plus-go-client/v2/client"
 	"github.com/nginx/nginx-prometheus-exporter/client"
 	"github.com/nginx/nginx-prometheus-exporter/collector"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/common/promslog/flag"
 	common_version "github.com/prometheus/common/version"
@@ -82,15 +82,16 @@ var (
 	constLabels = map[string]string{}
 
 	// Command-line flags.
-	webConfig     = kingpinflag.AddFlags(kingpin.CommandLine, ":9113")
-	metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").Envar("TELEMETRY_PATH").String()
-	nginxPlus     = kingpin.Flag("nginx.plus", "Start the exporter for NGINX Plus. By default, the exporter is started for NGINX.").Default("false").Envar("NGINX_PLUS").Bool()
-	scrapeURIs    = kingpin.Flag("nginx.scrape-uri", "A URI or unix domain socket path for scraping NGINX or NGINX Plus metrics. For NGINX, the stub_status page must be available through the URI. For NGINX Plus -- the API. Repeatable for multiple URIs.").Default("http://127.0.0.1:8080/stub_status").Envar("SCRAPE_URI").HintOptions("http://127.0.0.1:8080/stub_status", "http://127.0.0.1:8080/api").Strings()
-	sslVerify     = kingpin.Flag("nginx.ssl-verify", "Perform SSL certificate verification.").Default("false").Envar("SSL_VERIFY").Bool()
-	sslCaCert     = kingpin.Flag("nginx.ssl-ca-cert", "Path to the PEM encoded CA certificate file used to validate the servers SSL certificate.").Default("").Envar("SSL_CA_CERT").String()
-	sslClientCert = kingpin.Flag("nginx.ssl-client-cert", "Path to the PEM encoded client certificate file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_CERT").String()
-	sslClientKey  = kingpin.Flag("nginx.ssl-client-key", "Path to the PEM encoded client certificate key file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_KEY").String()
-
+	webConfig                           = kingpinflag.AddFlags(kingpin.CommandLine, ":9113")
+	metricsPath                         = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").Envar("TELEMETRY_PATH").String()
+	nginxPlus                           = kingpin.Flag("nginx.plus", "Start the exporter for NGINX Plus. By default, the exporter is started for NGINX.").Default("false").Envar("NGINX_PLUS").Bool()
+	scrapeURIs                          = kingpin.Flag("nginx.scrape-uri", "A URI or unix domain socket path for scraping NGINX or NGINX Plus metrics. For NGINX, the stub_status page must be available through the URI. For NGINX Plus -- the API. Repeatable for multiple URIs.").Default("http://127.0.0.1:8080/stub_status").Envar("SCRAPE_URI").HintOptions("http://127.0.0.1:8080/stub_status", "http://127.0.0.1:8080/api").Strings()
+	sslVerify                           = kingpin.Flag("nginx.ssl-verify", "Perform SSL certificate verification.").Default("false").Envar("SSL_VERIFY").Bool()
+	sslCaCert                           = kingpin.Flag("nginx.ssl-ca-cert", "Path to the PEM encoded CA certificate file used to validate the servers SSL certificate.").Default("").Envar("SSL_CA_CERT").String()
+	sslClientCert                       = kingpin.Flag("nginx.ssl-client-cert", "Path to the PEM encoded client certificate file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_CERT").String()
+	sslClientKey                        = kingpin.Flag("nginx.ssl-client-key", "Path to the PEM encoded client certificate key file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_KEY").String()
+	enableOpenMetrics                   = kingpin.Flag("prom.enableOpenMetrics", "Enable OpenMetrics v1.0 Text exposition format support for /metrics handler").Default("false").Envar("ENABLE_OPEN_METRICS").Bool()
+	enableOpenMetricsTextCreatedSamples = kingpin.Flag("prom.enableOpenMetricsTextCreatedSamples", "Enable sampling of created timestamps for COUNTER types in the OpenMetrics Text exposition format (ignored if prom.enableOpenMetrics is set to false)").Default("false").Envar("ENABLE_OPEN_METRICS_TEXT_CREATED_SAMPLES").Bool()
 	// Custom command-line flags.
 	timeout = createPositiveDurationFlag(kingpin.Flag("nginx.timeout", "A timeout for scraping metrics from NGINX or NGINX Plus.").Default("5s").Envar("TIMEOUT").HintOptions("5s", "10s", "30s", "1m", "5m"))
 )
@@ -172,7 +173,12 @@ func main() {
 		}
 	}
 
-	http.Handle(*metricsPath, promhttp.Handler())
+	http.Handle("/metrics", promhttp.InstrumentMetricHandler(
+		prometheus.DefaultRegisterer, promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{
+			EnableOpenMetrics:                   *enableOpenMetrics,
+			EnableOpenMetricsTextCreatedSamples: *enableOpenMetricsTextCreatedSamples,
+		}),
+	))
 
 	if *metricsPath != "/" && *metricsPath != "" {
 		landingConfig := web.LandingConfig{
